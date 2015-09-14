@@ -33,10 +33,36 @@ class Twip():
             return url
 
     def get_mentions(self, **params):
-        url = self.build_url(self.mentions_url, **params)
-        authorization = self.authorize(self.mentions_url, **params)
-        headers = {'Authorization': authorization}
-        return requests.get(url, headers=headers)
+        if 'count' in params and params.get('count', 0) > 200:
+            return self.iterate_mentions(**params)
+        else:
+            url = self.build_url(self.mentions_url, **params)
+            authorization = self.authorize(self.mentions_url, **params)
+            headers = {'Authorization': authorization}
+            r = requests.get(url, headers=headers)
+            self.last_request = r
+            return r.json()
+
+    def iterate_mentions(self, **params):
+        'Call get_mentions repeatedly until all results are saved.'
+        results = []
+        original_count = params.get('count')
+        params['count'] = 200
+        results.extend(self.get_mentions(**params))
+
+        finished = False
+        while finished is False:
+            max_id = min([x['id'] for x in results]) - 1
+            # since_id = max([x['id'] for x in results])
+            remaining_count = original_count - len(results)
+            if remaining_count < 200:
+                params['count'] = remaining_count
+            # r = self.get_mentions(max_id=max_id, since_id=since_id, **params)
+            r = self.get_mentions(max_id=max_id, **params)
+            results.extend(r)
+            if len(results) >= original_count or len(results) == 0:
+                finished = True
+        return results
 
     def get_bearer_token(self):
         if hasattr(self, 'bearer_token'):
@@ -89,7 +115,6 @@ class Twip():
         base_string = method.upper() + '&'
         base_string += urllib.quote(url, safe='') + '&'
         base_string += urllib.quote(param_string, safe='')
-        print base_string
 
         secrets = [self.consumer_secret, self.access_token_secret]
         signing_key = '&'.join([urllib.quote(s, safe='') for s in secrets])
